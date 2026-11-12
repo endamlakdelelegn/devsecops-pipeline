@@ -1,0 +1,103 @@
+ASSIGNMENT SIX — Building a Secure CI/CD Pipeline with GitHub Actions
+Student: Endamlak Muluneh
+
+Repository: [replace with the GitHub URL for devsecops-pipeline]
+
+TASK 1 — CI/CD CONCEPTS
+
+1. Continuous Integration (CI) is the frequent integration of small changes with automated build and test checks. It discovers integration problems close to the change that caused them.
+
+Continuous Delivery keeps every change that passes CI in a deployable state, but a person or release process decides when production deployment happens. Continuous Deployment goes further by automatically deploying every passing change to production.
+
+2. A broken endpoint can reach main; CI tests catch regressions before merge. A committed API key can go unnoticed; secret scanning identifies it. A dependency with known vulnerabilities can be merged; dependency scanning consistently finds it. Manual review can be inconsistent and slow; repeatable checks give each pull request the same baseline and rapid feedback.
+
+3. Security checks should run on a pull request before merge so the author can correct a problem while it is isolated from the shared main branch. This is shift left: it moves validation earlier, where remediation costs less and affects fewer people. Scanning only after a push to main identifies the risk after it is already in the team branch.
+
+4. A workflow is YAML-defined automation in GitHub Actions. A job is a set of steps run by a runner. A step is one command or action in a job. A runner is the machine that executes a job. An action is reusable packaged automation used in a step.
+
+5. A laptop audit depends on a person remembering to run it, using the current lockfile, and reporting its result. A pipeline executes the same command for every relevant push and pull request in a clean runner and leaves an auditable result. Because it can fail, branch protection can enforce it rather than treating it as advice.
+
+TASK 2 — BUILD THE CI PIPELINE
+
+1-2. .github/workflows/ci.yml runs on pushes and pull requests to main. It checks out the code, uses Node.js 20, runs npm ci, tests, lints, and checks that the plain Node API entry point loads. Because this API has no compilation step, loading the entry point is the sensible build substitute. A dependent job runs npm audit at high/critical severity.
+
+3. npm ci installs precisely the versions in package-lock.json, producing reproducible CI runs without changing the lockfile. GitHub Actions discovers workflow YAML only from .github/workflows/, so a file elsewhere is not a workflow.
+
+4. Successful run URL: [replace after pushing]. Checkout obtains the revision; setup installs Node and enables npm caching; npm ci installs locked packages; Jest runs tests; ESLint checks style; verify:app imports the application; the dependency job audits the installed tree.
+
+5. Controlled failed-run URL: [replace after intentionally breaking a test assertion]. The Run tests step failed because its expected result did not match the endpoint response. Green recovery URL: [replace after restoring the assertion].
+
+6. A non-zero exit status makes GitHub Actions fail the job and skip subsequent normal steps. This is the basis of a security gate: a failed test or scan becomes a status check that branch protection can require before merge.
+
+TASK 3 — SECRET DETECTION
+
+1. A secret deleted in a later commit is still compromised because the original value remains in repository history and may already have been copied, cached, or cloned. It must be considered exposed and rotated or revoked.
+
+2. I chose Gitleaks in .github/workflows/secret-detection.yml. It scans pushes and pull requests and provides repository-history scanning even when the GitHub plan has no push protection.
+
+3. Gitleaks failed-run URL and log: [replace after a disposable-branch demonstration]. The demonstration must contain an invented credential only and be removed after evidence is captured.
+
+4. Response process: (1) immediately revoke or rotate the exposed credential; (2) remove it from current code/configuration; (3) investigate repository history, logs, and use; (4) invalidate affected sessions/resources and create a replacement secret; (5) document the incident and improve controls. Revocation comes first because removing text from Git does not stop someone who already holds a usable secret.
+
+5. Local values belong in an untracked .env file or local secret manager, never Git. Workflow values belong in GitHub Actions Secrets or environment secrets and are referenced only as ${{ secrets.NAME }} by the jobs that need them.
+
+TASK 4 — DEPENDENCY SCANNING AND SAST
+
+Part A
+
+1. The dependency stage uses npm audit --audit-level=high in ci.yml, so high and critical findings fail the pipeline.
+
+2. Vulnerable-dependency run URL/output: [replace after a disposable-branch demonstration]. Record the package, severity, and direct/transitive status from the actual npm audit output.
+
+3. Remediation URL/output: [replace after updating or removing the vulnerable package, then rerunning tests and audit]. The remediation is to use a supported non-vulnerable version or remove an unnecessary dependency, then verify functionality.
+
+4. The local audit currently reports six low-severity transitive findings while the high/critical gate passes. The aim is risk management, not blindly reaching zero: each result needs assessment of reachability, exploitability, ownership, and the compatibility cost of a fix.
+
+Part B
+
+5. .github/workflows/codeql.yml enables GitHub CodeQL for JavaScript. It analyzes pushes and pull requests to main, supports a manual run, and runs weekly.
+
+6. Controlled CodeQL finding URL and explanation: [replace after a disposable-branch demonstration]. Explain the real rule name and the reported data flow or pattern; do not claim a finding that was not produced.
+
+7. Fixed CodeQL run URL: [replace after fixing the unsafe implementation and rerunning]. The fix must correct the underlying unsafe handling, not suppress the alert.
+
+8. SAST may miss an authorization logic flaw, such as allowing a normal user to read another user's record because an ownership comparison is absent. It recognizes known patterns and tainted flows, but cannot reliably infer every application-specific business rule.
+
+TASK 5 — THE SECURITY GATE
+
+1. Gate rule: tests PASS AND lint PASS AND application verification PASS AND no HIGH or CRITICAL dependency vulnerabilities AND Gitleaks PASS AND CodeQL PASS.
+
+2. GitHub configuration evidence: [replace after configuration]. On main, require a pull request, up-to-date branches, and these checks: Build, Lint & Test; Dependency Scan; Scan for secrets (Gitleaks); Analyze (JavaScript).
+
+3. Blocked pull request URL/screenshot: [replace after a failing-test demonstration]. The failed required test check prevents merging.
+
+4. Fixed pull request URL/screenshot: [replace after restoring the test]. The pull request is mergeable only after all required checks pass.
+
+5. A reporting check provides information but does not stop a merge; an enforced gate is a required status check used by branch protection. High-confidence material risks should block a merge. Blocking every trivial issue creates noise, slows delivery, and encourages bypasses.
+
+TASK 6 — PIPELINE DESIGN, SECRETS, AND REVIEW
+
+1. Pipeline:
+Developer push / pull request
+  -> CI: checkout -> Node 20 -> npm ci -> tests -> lint -> application-load verification
+  -> Module 4: npm audit dependency security gate
+  -> Module 2 / Module 7: Gitleaks secret detection
+  -> Module 3: CodeQL JavaScript SAST
+  -> required status checks on main -> merge only when green
+
+2. I would create a repository or environment secret, for example SCANNER_TOKEN, in GitHub Settings and provide it only to the needed step as ${{ secrets.SCANNER_TOKEN }}. GitHub Actions Secrets keeps the value out of YAML and redacts it from most logs.
+
+3. Development, test, staging, and production need separate secrets so compromise of a low-trust environment cannot grant production access. This applies least privilege and separation of duties: each environment and workflow receives only the credentials and scope it needs.
+
+4. Final Module 6 checklist:
+- Create and run GitHub Actions workflows: yes — CI, Gitleaks, and CodeQL files exist.
+- Run automated tests in CI: yes — Jest runs before later CI stages.
+- Lint and verify loading: yes — ESLint and verify:app are required.
+- Scan dependencies: yes — npm audit gates high/critical findings.
+- Scan code with SAST: yes — CodeQL JavaScript workflow.
+- Detect committed secrets: yes — Gitleaks scans repository history.
+- Store workflow secrets safely: ready — this project has no real external token, so none was created.
+- Enforce checks before merge: requires the branch-protection setup and evidence described in GITHUB_SETUP_AND_EVIDENCE.md.
+- Read and remediate findings: locally verified for tests, lint, and audit; GitHub-run evidence must be captured after publishing.
+
+5. I first used npm audit manually in Module 4. The automated version runs that dependency-risk check for every relevant change in a clean GitHub runner and can block a pull request instead of relying on me to remember to run it.
